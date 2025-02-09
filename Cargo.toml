@@ -1,0 +1,10 @@
+[package]
+name = "ledger"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = "1.0.95"
+serde = { version = "1.0.217", features = ["derive"] }
+# note: not needed for the library, only used in the binary
+csv = "1.3.1"
