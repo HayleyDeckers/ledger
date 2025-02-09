@@ -1,6 +1,4 @@
 //! This crate implements a toy payment engine that processes CSV files containing deposits, withdrawals, disputes, chargebacks, and dispute resolutions.
-
-use anyhow::Result;
 use serde::{Deserialize, Deserializer, Serialize};
 use std::fmt::Debug;
 
@@ -10,6 +8,38 @@ pub mod actions;
 pub mod client;
 /// The database of clients and transactions.
 pub mod database;
+
+/// The errors that can occur when processing transactions.
+#[derive(Debug, thiserror::Error)]
+pub enum Error {
+    /// the client does not have enough funds to perform the requested action
+    #[error("insufficient funds")]
+    InsufficientFunds,
+    /// the transaction id has already been used (these must be globally unique)
+    #[error("requested transaction id has already been used")]
+    InvalidTransactionId,
+    /// There are insufficient funds held to resolve or chargeback a dispute.
+    /// Likely a bug in the transaction processing code, because we should always hold funds before processing a chargeback or resolve
+    #[error("insufficient held funds")]
+    InsufficientHeldFunds,
+    /// the client's account is locked and no withdrawals can be made
+    #[error("account is locked")]
+    AccountLocked,
+    /// the transaction id was not found in the database
+    #[error("transaction id not found")]
+    TransactionNotFound,
+    /// the transaction id was not disputed before a chargeback or resolve was attempted
+    #[error("transaction id not disputed")]
+    TransactionNotDisputed,
+    /// the clients balance would overflow if the requested action was performed
+    #[error("overflow updating balance")]
+    Overflow,
+    /// the clients balance would underflow if the requested action was performed
+    #[error("underflow updating balance")]
+    Underflow,
+}
+
+pub(crate) type Result<T> = std::result::Result<T, Error>;
 
 // we use a newtype pattern to make our code more type-safe and easier to update.
 // By using a new struct instead of `type X = Y;` we block ourselves from accidentally performing arithmetic on the id's.
@@ -52,7 +82,7 @@ impl Debug for Amount {
 
 /// deserialize from a string with 4 decimal places
 impl<'de> Deserialize<'de> for Amount {
-    fn deserialize<D>(deserializer: D) -> Result<Amount, D::Error>
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Amount, D::Error>
     where
         D: Deserializer<'de>,
     {
@@ -106,7 +136,7 @@ impl Balance {
     pub fn try_add(self, other: Amount) -> Result<Self> {
         self.0
             .checked_add_unsigned(other.0 as u128)
-            .ok_or_else(|| anyhow::anyhow!("overflow updating balance"))
+            .ok_or(Error::Overflow)
             .map(Self)
     }
     /// try to subtract an amount from the balance, returning an error if it would underflow
@@ -115,7 +145,7 @@ impl Balance {
     pub fn try_sub(self, other: Amount) -> Result<Self> {
         self.0
             .checked_sub_unsigned(other.0 as u128)
-            .ok_or_else(|| anyhow::anyhow!("underflow updating balance"))
+            .ok_or(Error::Underflow)
             .map(Self)
     }
 }

@@ -1,15 +1,14 @@
-use anyhow::{Context, Result};
 use ledger::{actions::AccountAction, database::Database};
 use std::{fs::File, io::BufReader};
 
-fn main() -> Result<()> {
+fn main() {
     let args: Vec<String> = std::env::args().collect();
     if args.len() != 2 {
         eprintln!("usage: {} <input.csv>", args[0]);
         std::process::exit(1);
     }
     let path = &args[1];
-    let reader = BufReader::new(File::open(path).context("failed to open example file")?);
+    let reader = BufReader::new(File::open(path).expect("failed to open file"));
     let mut reader = csv::ReaderBuilder::new()
         // we have headers in the CSV
         .has_headers(true)
@@ -36,8 +35,8 @@ fn main() -> Result<()> {
     }
     let mut wtr = csv::Writer::from_writer(std::io::stdout());
     for client in db.clients() {
-        wtr.serialize(client)
-            .context("failed to serialize client")?;
+        if let Err(e) = wtr.serialize(client) {
+            panic!("failed to serialize client database: {e}");
+        }
     }
-    Ok(())
 }

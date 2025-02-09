@@ -1,7 +1,7 @@
 use crate::{
     actions::{AccountAction, Chargeback, Deposit, Dispute, Resolve, Withdrawal},
     client::Client,
-    Amount, ClientId, Result, TransactionId,
+    Amount, ClientId, Error, Result, TransactionId,
 };
 use serde::Serialize;
 use std::{
@@ -103,7 +103,7 @@ impl Database {
             amount,
         } = deposit;
         if !self.seen_transactions.insert(transaction_id) {
-            return Err(anyhow::anyhow!("transaction already processed"));
+            return Err(Error::InvalidTransactionId);
         }
         self.client_mut(client_id).deposit(amount)?;
         self.deposit_transactions.insert(
@@ -124,7 +124,7 @@ impl Database {
             amount,
         } = withdrawal;
         if !self.seen_transactions.insert(transaction_id) {
-            return Err(anyhow::anyhow!("transaction already processed"));
+            return Err(Error::InvalidTransactionId);
         }
         self.client_mut(client_id).withdraw(amount)?;
         Ok(())
@@ -137,7 +137,7 @@ impl Database {
         let deposit = self
             .deposit_transactions
             .get_mut(&disputed_transaction)
-            .ok_or_else(|| anyhow::anyhow!("deposit not found"))?;
+            .ok_or(Error::TransactionNotFound)?;
         if deposit.disputed {
             // already disputed, nothing to do
             return Ok(());
@@ -162,9 +162,9 @@ impl Database {
         let deposit = self
             .deposit_transactions
             .get_mut(&disputed_transaction)
-            .ok_or_else(|| anyhow::anyhow!("deposit not found"))?;
+            .ok_or(Error::TransactionNotFound)?;
         if !deposit.disputed {
-            return Err(anyhow::anyhow!("deposit not disputed"));
+            return Err(Error::TransactionNotDisputed);
         }
         self.clients
             .entry(deposit.client_id)
@@ -183,9 +183,9 @@ impl Database {
         let deposit = self
             .deposit_transactions
             .get_mut(&disputed_transaction)
-            .ok_or_else(|| anyhow::anyhow!("deposit not found"))?;
+            .ok_or(Error::TransactionNotFound)?;
         if !deposit.disputed {
-            return Err(anyhow::anyhow!("deposit not disputed"));
+            return Err(Error::TransactionNotDisputed);
         }
         self.clients
             .entry(deposit.client_id)

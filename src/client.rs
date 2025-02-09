@@ -1,4 +1,4 @@
-use crate::{Amount, Balance, Result};
+use crate::{Amount, Balance, Error, Result};
 
 /// A client's account.
 ///
@@ -56,10 +56,10 @@ impl Client {
     /// this will fail if the account is locked, there are insufficient funds, or an underflow occurs.
     pub(crate) fn withdraw(&mut self, amount: Amount) -> Result<()> {
         if self.is_locked() {
-            return Err(anyhow::anyhow!("account is locked"));
+            return Err(Error::AccountLocked);
         }
         if self.available.0 < amount.0 as i128 {
-            return Err(anyhow::anyhow!("insufficient funds"));
+            return Err(Error::InsufficientFunds);
         }
         // this line should never fail because we have already checked that available >= amount
         self.available = self.available.try_sub(amount)?;
@@ -88,9 +88,7 @@ impl Client {
     /// This function can fail if an under- or overflow  occurs, or if there are insufficient held funds (If this occurs, there is a bug in the code).
     pub(crate) fn resolve(&mut self, amount: Amount) -> Result<()> {
         if self.held.0 < amount.0 as i128 {
-            return Err(anyhow::anyhow!(
-                "insufficient held funds. Likely a bug in the transaction processing"
-            ));
+            return Err(Error::InsufficientHeldFunds);
         }
         let new_held = self.held.try_sub(amount);
         let new_available = self.available.try_add(amount);
@@ -111,9 +109,7 @@ impl Client {
     pub(crate) fn chargeback(&mut self, amount: Amount) -> Result<()> {
         self.locked = true;
         if self.held.0 < amount.0 as i128 {
-            return Err(anyhow::anyhow!(
-                "insufficient held funds. Likely a bug in the transaction processing"
-            ));
+            return Err(Error::InsufficientHeldFunds);
         }
         // this line should never fail because we have already checked that held >= amount
         self.held = self.held.try_sub(amount)?;

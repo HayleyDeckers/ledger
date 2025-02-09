@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-anyhow = "1.0.95"
 serde = { version = "1.0.217", features = ["derive"] }
+thiserror = "2.0.11"
 # note: not needed for the library, only used in the binary
 csv = "1.3.1"
