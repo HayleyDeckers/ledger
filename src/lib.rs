@@ -5,8 +5,8 @@ use std::{
     fmt::Debug,
 };
 
-// ✨ we use a newtype pattern to make our code more type-safe and easier to update.
-// ✨ By using a new struct instead of `type X = Y;` we block ourselves from accidentally performing arithmetic on the id's.
+// we use a newtype pattern to make our code more type-safe and easier to update.
+// By using a new struct instead of `type X = Y;` we block ourselves from accidentally performing arithmetic on the id's.
 /// The ID of a transaction (deposit or withdrawal).
 /// These are globally unique but need not be sequential.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -579,6 +579,32 @@ mod tests {
         for record in reader.deserialize::<AccountAction>() {
             assert!(record.is_err());
         }
+    }
+
+    /// ensure the amount in a transaction has at most 4 decimal places
+    #[test]
+    fn amount_precision() {
+        let entry = "type,client,tx,amount
+             deposit,1,1,1
+             deposit,1,1,1.
+             deposit,1,1,1.0000
+             # 5 decimal places
+             deposit,1,1,1.00000
+             # u64::MAX, can't be represented because we need space for up to 4 decimals too
+             deposit,1,1,18446744073709551615";
+        let mut reader = csv::ReaderBuilder::new()
+            .has_headers(true)
+            .comment(Some(b'#'))
+            .flexible(true)
+            .trim(csv::Trim::All)
+            .from_reader(entry.as_bytes());
+        let mut records = reader.deserialize::<AccountAction>();
+        assert!(records.next().is_some_and(|x| x.is_ok()));
+        assert!(records.next().is_some_and(|x| x.is_ok()));
+        assert!(records.next().is_some_and(|x| x.is_ok()));
+        assert!(records.next().is_some_and(|x| x.is_err()));
+        assert!(records.next().is_some_and(|x| x.is_err()));
+        assert!(records.next().is_none());
     }
 
     /// ensure a user can't withdraw into the negative
