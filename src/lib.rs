@@ -3,7 +3,6 @@ use serde::{Deserialize, Deserializer, Serialize};
 use std::{
     collections::{BTreeMap, BTreeSet},
     fmt::Debug,
-    i128,
 };
 
 // ✨ we use a newtype pattern to make our code more type-safe and easier to update.
@@ -223,7 +222,7 @@ pub struct Balance(i128);
 impl Balance {
     /// try to add an amount to the balance, returning an error if it would overflow.
     /// returns the new balance if successful (it does not modify the original balance).
-    #[must_use]
+    #[must_use = "this returns the new balance, it does not modify the original balance"]
     pub fn try_add(self, other: Amount) -> Result<Self> {
         self.0
             .checked_add_unsigned(other.0 as u128)
@@ -232,7 +231,7 @@ impl Balance {
     }
     /// try to subtract an amount from the balance, returning an error if it would underflow
     /// returns the new balance if successful (it does not modify the original balance).
-    #[must_use]
+    #[must_use = "this returns the new balance, it does not modify the original balance"]
     pub fn try_sub(self, other: Amount) -> Result<Self> {
         self.0
             .checked_sub_unsigned(other.0 as u128)
@@ -547,7 +546,7 @@ pub struct ClientWithId<'a> {
     client: &'a Client,
 }
 
-impl<'a> Serialize for ClientWithId<'a> {
+impl Serialize for ClientWithId<'_> {
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
