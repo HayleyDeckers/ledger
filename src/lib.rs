@@ -1,8 +1,11 @@
+//! This crate implements a toy payment engine that processes CSV files containing deposits, withdrawals, disputes, chargebacks, and dispute resolutions.
+
 use anyhow::Result;
 use serde::{Deserialize, Deserializer, Serialize};
 use std::{
     collections::{BTreeMap, BTreeSet},
     fmt::Debug,
+    ops::Deref,
 };
 
 // we use a newtype pattern to make our code more type-safe and easier to update.
@@ -120,13 +123,17 @@ impl<'de> Deserialize<'de> for AccountAction {
             TransactionType::Deposit | TransactionType::Withdrawal => {
                 // amount _is_ allowed to be zero, but not missing, for deposits and withdrawals
                 if amount.is_none() {
-                    return Err(serde::de::Error::custom("missing amount"));
+                    return Err(serde::de::Error::custom(
+                        "missing amount for deposit or withdrawal",
+                    ));
                 }
             }
             TransactionType::Dispute | TransactionType::Resolve | TransactionType::Chargeback => {
                 // amount _must_ be missing for disputes, resolves, and chargebacks
                 if amount.is_some() {
-                    return Err(serde::de::Error::custom("amount set"));
+                    return Err(serde::de::Error::custom(
+                        "amount set for dispute, resolve, or chargeback",
+                    ));
                 }
             }
         };
@@ -293,6 +300,8 @@ impl Database {
         Self::default()
     }
 
+    /// returns an iterator over all clients in the database and their associated id.
+    /// this is used for serializing the clients.
     pub fn clients(&self) -> impl Iterator<Item = ClientWithId> {
         self.clients
             .iter()
@@ -460,6 +469,13 @@ impl Client {
         self.available
     }
 
+    /// whether the account is locked.
+    ///
+    /// a locked account can no longer make any withdrawals.
+    pub fn is_locked(&self) -> bool {
+        self.locked
+    }
+
     /// Deposit funds into the account.
     ///
     /// this will fail if an overflow occurs.
@@ -472,7 +488,7 @@ impl Client {
     ///
     /// this will fail if the account is locked, there are insufficient funds, or an underflow occurs.
     fn withdraw(&mut self, amount: Amount) -> Result<()> {
-        if self.locked {
+        if self.is_locked() {
             return Err(anyhow::anyhow!("account is locked"));
         }
         if self.available.0 < amount.0 as i128 {
@@ -546,6 +562,20 @@ pub struct ClientWithId<'a> {
     client: &'a Client,
 }
 
+impl ClientWithId<'_> {
+    pub fn id(&self) -> ClientId {
+        self.id
+    }
+}
+
+impl Deref for ClientWithId<'_> {
+    type Target = Client;
+
+    fn deref(&self) -> &Self::Target {
+        self.client
+    }
+}
+
 impl Serialize for ClientWithId<'_> {
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
     where
@@ -557,7 +587,7 @@ impl Serialize for ClientWithId<'_> {
         state.serialize_field("available", &self.client.available())?;
         state.serialize_field("held", &self.client.held())?;
         state.serialize_field("total", &(self.client.total()))?;
-        state.serialize_field("locked", &self.client.locked)?;
+        state.serialize_field("locked", &self.client.is_locked())?;
         state.end()
     }
 }
