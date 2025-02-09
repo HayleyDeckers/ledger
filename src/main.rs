@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use ledger::{AccountAction, Database};
+use ledger::{actions::AccountAction, database::Database};
 use std::{fs::File, io::BufReader};
 
 fn main() -> Result<()> {
