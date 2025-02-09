@@ -131,3 +131,44 @@ impl<'de> Deserialize<'de> for AccountAction {
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::AccountAction;
+    /// ensure the amount field must be present for deposits and withdrawals
+    #[test]
+    fn amount_present() {
+        let entry = "type,client,tx,amount\nwithdrawal,1,1\ndeposit,1,2,\ndeposit,1,3,1\n";
+        let mut reader = csv::ReaderBuilder::new()
+            .has_headers(true)
+            .comment(Some(b'#'))
+            .flexible(true)
+            .trim(csv::Trim::All)
+            .from_reader(entry.as_bytes());
+        let mut records = reader.deserialize::<AccountAction>();
+        assert!(records.next().is_some_and(|x| x.is_err()));
+        assert!(records.next().is_some_and(|x| x.is_err()));
+        assert!(records.next().is_some_and(|x| x.is_ok()));
+        assert!(records.next().is_none());
+    }
+
+    /// ensure the amount field must be missing for disputes, resolves, and chargebacks
+    #[test]
+    fn amount_missing() {
+        let entry = "type,client,tx,amount\ndispute,1,1,1\nresolve,1,2,1\nchargeback,1,3,1\ndispute,1,4,\nresolve,1,5\nchargeback,1,6,\n";
+        let mut reader = csv::ReaderBuilder::new()
+            .has_headers(true)
+            .comment(Some(b'#'))
+            .flexible(true)
+            .trim(csv::Trim::All)
+            .from_reader(entry.as_bytes());
+        let mut records = reader.deserialize::<AccountAction>();
+        assert!(records.next().is_some_and(|x| x.is_err()));
+        assert!(records.next().is_some_and(|x| x.is_err()));
+        assert!(records.next().is_some_and(|x| x.is_err()));
+        assert!(records.next().is_some_and(|x| x.is_ok()));
+        assert!(records.next().is_some_and(|x| x.is_ok()));
+        assert!(records.next().is_some_and(|x| x.is_ok()));
+        assert!(records.next().is_none());
+    }
+}

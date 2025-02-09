@@ -214,3 +214,131 @@ impl Database {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// ensure disputes can only target deposits
+    #[test]
+    fn dispute_target() {
+        let mut db = Database::new();
+        let deposit = Deposit {
+            client_id: ClientId(1),
+            transaction_id: TransactionId(1),
+            amount: Amount(1),
+        };
+        let withdrawal = Withdrawal {
+            client_id: ClientId(1),
+            transaction_id: TransactionId(2),
+            amount: Amount(1),
+        };
+        let dispute = Dispute {
+            disputed_transaction: TransactionId(2),
+        };
+        assert!(db.perform_action(AccountAction::Deposit(deposit)).is_ok());
+        assert!(db
+            .perform_action(AccountAction::Withdrawal(withdrawal))
+            .is_ok());
+        assert!(db.perform_action(AccountAction::Dispute(dispute)).is_err());
+    }
+
+    /// ensure that transactions can't be processed twice
+    #[test]
+    fn duplicate_transaction() {
+        let mut db = Database::new();
+
+        assert!(db
+            .perform_action(AccountAction::Deposit(Deposit {
+                client_id: ClientId(1),
+                transaction_id: TransactionId(1),
+                amount: Amount(1),
+            }))
+            .is_ok());
+        assert!(db
+            .perform_action(AccountAction::Deposit(Deposit {
+                client_id: ClientId(1),
+                transaction_id: TransactionId(1),
+                amount: Amount(1),
+            }))
+            .is_err());
+        assert!(db
+            .perform_action(AccountAction::Withdrawal(Withdrawal {
+                client_id: ClientId(1),
+                transaction_id: TransactionId(1),
+                amount: Amount(1),
+            }))
+            .is_err());
+        assert!(db
+            .perform_action(AccountAction::Withdrawal(Withdrawal {
+                client_id: ClientId(1),
+                transaction_id: TransactionId(2),
+                amount: Amount(1),
+            }))
+            .is_ok());
+    }
+
+    ///ensure that a deposit can not be charged back multiple times
+    #[test]
+    fn duplicate_chargeback() {
+        let mut db = Database::new();
+        assert!(db
+            .perform_action(AccountAction::Deposit(Deposit {
+                client_id: ClientId(1),
+                transaction_id: TransactionId(1),
+                amount: Amount(1),
+            }))
+            .is_ok());
+        assert!(db
+            .perform_action(AccountAction::Dispute(Dispute {
+                disputed_transaction: TransactionId(1),
+            }))
+            .is_ok());
+        assert!(db
+            .perform_action(AccountAction::Chargeback(Chargeback {
+                disputed_transaction: TransactionId(1),
+            }))
+            .is_ok());
+        assert!(db
+            .perform_action(AccountAction::Chargeback(Chargeback {
+                disputed_transaction: TransactionId(1),
+            }))
+            .is_err());
+    }
+
+    /// ensure that a chargeback requires a dispute
+    #[test]
+    fn chargeback_no_dispute() {
+        let mut db = Database::new();
+        assert!(db
+            .perform_action(AccountAction::Deposit(Deposit {
+                client_id: ClientId(1),
+                transaction_id: TransactionId(1),
+                amount: Amount(1),
+            }))
+            .is_ok());
+        assert!(db
+            .perform_action(AccountAction::Chargeback(Chargeback {
+                disputed_transaction: TransactionId(1),
+            }))
+            .is_err());
+    }
+
+    /// ensure that we can't "resolve" a deposit if it hasn't been disputed
+    #[test]
+    fn resolve_no_dispute() {
+        let mut db = Database::new();
+        assert!(db
+            .perform_action(AccountAction::Deposit(Deposit {
+                client_id: ClientId(1),
+                transaction_id: TransactionId(1),
+                amount: Amount(1),
+            }))
+            .is_ok());
+        assert!(db
+            .perform_action(AccountAction::Resolve(Resolve {
+                disputed_transaction: TransactionId(1),
+            }))
+            .is_err());
+    }
+}

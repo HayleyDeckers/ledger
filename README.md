@@ -12,7 +12,7 @@ The `Database` maintains a record of all transaction IDs (from withdrawals and d
 
 Throughout the crate, strong typing is employed to reduce errors. For example, IDs are wrapped in new types to prevent unintended operations (e.g., accidental use of `ops::Add`). The types for deposit and withdrawal amounts (`Amount`) wrap a `u64` ensuring amounts cannot be negative, while client balances use `i128`. By using integers instead of floats we prevent rounding errors and by checking all arithmetic operations performed on balances we prevent over- or underflow. Furthermore, when updating a client’s funds for a hold operation, the library guarantees that either both the available and held funds are updated successfully or neither is changed.
 
-Unit tests are present in `lib.rs` to validate the assumptions made and guarantees provided by the crate.
+Unit tests are present in each module to validate the assumptions made and guarantees provided by the crate.
 
 ---
 

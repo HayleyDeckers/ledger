@@ -140,18 +140,18 @@ impl Serialize for Balance {
 
 #[cfg(test)]
 mod tests {
-    use super::{actions::*, client::Client, database::Database, *};
+    use super::Amount;
     /// ensure the amount in a transaction is always positive, to prevent someone withdrawing negative funds
     #[test]
     fn amount_positive() {
-        let entry = "type,client,tx,amount\nwithdrawal,1,1,-1.00\ndeposit,1,2,-1.00";
+        let entry = "amount\n-1.00\n-0.001\n0.-5";
         let mut reader = csv::ReaderBuilder::new()
             .has_headers(true)
             .comment(Some(b'#'))
             .flexible(true)
             .trim(csv::Trim::All)
             .from_reader(entry.as_bytes());
-        for record in reader.deserialize::<AccountAction>() {
+        for record in reader.deserialize::<Amount>() {
             assert!(record.is_err());
         }
     }
@@ -159,266 +159,24 @@ mod tests {
     /// ensure the amount in a transaction has at most 4 decimal places
     #[test]
     fn amount_precision() {
-        let entry = "type,client,tx,amount
-             deposit,1,1,1
-             deposit,1,1,1.
-             deposit,1,1,1.0000
-             deposit,1,1,1.00000
-             deposit,1,1,18446744073709551615";
+        let entry = "amount
+             1
+             1.
+             1.0000
+             1.00000
+             18446744073709551615";
         let mut reader = csv::ReaderBuilder::new()
             .has_headers(true)
             .comment(Some(b'#'))
             .flexible(true)
             .trim(csv::Trim::All)
             .from_reader(entry.as_bytes());
-        let mut records = reader.deserialize::<AccountAction>();
+        let mut records = reader.deserialize::<Amount>();
         assert!(records.next().is_some_and(|x| x.is_ok()));
         assert!(records.next().is_some_and(|x| x.is_ok()));
         assert!(records.next().is_some_and(|x| x.is_ok()));
         assert!(records.next().is_some_and(|x| x.is_err()));
         assert!(records.next().is_some_and(|x| x.is_err()));
         assert!(records.next().is_none());
-    }
-
-    /// ensure a user can't withdraw into the negative
-    #[test]
-    fn withdrawal_negative() {
-        let mut client = Client::default();
-        client.available = Balance(5);
-        assert!(client.withdraw(Amount(10)).is_err());
-        assert!(client.available.0 == 5);
-
-        client.available = Balance(-5);
-        assert!(client.withdraw(Amount(5)).is_err());
-    }
-
-    /// ensure no over- or under-flow can occur when applying mutations to the balance
-    #[test]
-    fn balance_overflow() {
-        let mut client = Client::default();
-        // overflowing a deposit
-        client.available = Balance(i128::MAX);
-        assert!(client.deposit(Amount(1)).is_err());
-        assert!(client.available.0 == i128::MAX);
-
-        // underflowing a withdrawal
-        // actually stopped before the underflow because of insufficient funds
-        client.available = Balance(i128::MIN);
-        assert!(client.withdraw(Amount(1)).is_err());
-        assert!(client.available.0 == i128::MIN);
-
-        // underflowing a hold
-        // (can occur if we dispute more than the client has available)
-        client.available = Balance(i128::MIN);
-        assert!(client.hold(Amount(1)).is_err());
-        assert!(client.available.0 == i128::MIN);
-        assert!(client.held.0 == 0);
-
-        // overflowing a resolve
-        client.available = Balance(i128::MAX);
-        client.held = Balance(1);
-        assert!(client.resolve(Amount(1)).is_err());
-
-        // underflowing a chargeback
-        // actually stopped before the underflow because of insufficient held funds
-        client.held = Balance(i128::MIN);
-        assert!(client.chargeback(Amount(1)).is_err());
-    }
-
-    /// ensure that the total balance is always equal to the sum of the available and held balances
-    #[test]
-    fn total_balance() {
-        let mut client = Client::default();
-        client.available = Balance(-5);
-        client.held = Balance(2);
-        assert!(client.total().0 == -3);
-    }
-
-    /// ensure that we can put a hold on a client even if they have negative funds
-    #[test]
-    fn hold_negative() {
-        let mut client = Client::default();
-        client.available = Balance(-5);
-        client.held = Balance(0);
-        assert!(client.hold(Amount(5)).is_ok());
-        assert!(client.available.0 == -10);
-        assert!(client.held.0 == 5);
-    }
-
-    /// ensure disputes can only target deposits
-    #[test]
-    fn dispute_target() {
-        let mut db = Database::new();
-        let deposit = Deposit {
-            client_id: ClientId(1),
-            transaction_id: TransactionId(1),
-            amount: Amount(1),
-        };
-        let withdrawal = Withdrawal {
-            client_id: ClientId(1),
-            transaction_id: TransactionId(2),
-            amount: Amount(1),
-        };
-        let dispute = Dispute {
-            disputed_transaction: TransactionId(2),
-        };
-        assert!(db.perform_action(AccountAction::Deposit(deposit)).is_ok());
-        assert!(db
-            .perform_action(AccountAction::Withdrawal(withdrawal))
-            .is_ok());
-        assert!(db.perform_action(AccountAction::Dispute(dispute)).is_err());
-    }
-
-    /// ensure locked accounts can't be withdrawn from
-    #[test]
-    fn locked_withdraw() {
-        let mut client = Client::default();
-        client.available = Balance(1);
-        client.locked = true;
-        assert!(client.withdraw(Amount(1)).is_err());
-        assert!(client.available.0 == 1);
-        client.locked = false;
-        assert!(client.withdraw(Amount(1)).is_ok());
-        assert!(client.available.0 == 0);
-    }
-
-    /// ensure that a dispute can't be resolved if the funds are insufficient
-    /// (this should never happen in production, it would be a bug in the transaction processing)
-    #[test]
-    fn resolve_insufficient() {
-        let mut client = Client::default();
-        client.held = Balance(1);
-        assert!(client.resolve(Amount(2)).is_err());
-        assert!(client.held.0 == 1);
-    }
-
-    /// ensure that a chargeback can't be performed if the funds are insufficient
-    /// (this should never happen in production, it would be a bug in the transaction processing)
-    #[test]
-    fn chargeback_insufficient() {
-        let mut client = Client::default();
-        client.held = Balance(1);
-        assert!(client.chargeback(Amount(2)).is_err());
-        assert!(client.held.0 == 1);
-    }
-
-    /// ensure that a chargeback locks the account
-    #[test]
-    fn chargeback_lock() {
-        let mut client = Client::default();
-        client.held = Balance(1);
-        assert!(client.chargeback(Amount(1)).is_ok());
-        assert!(client.locked);
-    }
-
-    /// ensure that a resolved dispute can be disputed again
-    #[test]
-    fn redispute() {
-        let mut client = Client::default();
-        client.available = Balance(1);
-        assert!(client.hold(Amount(1)).is_ok());
-        assert!(client.resolve(Amount(1)).is_ok());
-        assert!(client.held.0 == 0);
-        assert!(client.available.0 == 1);
-        assert!(client.hold(Amount(1)).is_ok());
-    }
-
-    /// ensure that transactions can't be processed twice
-    #[test]
-    fn duplicate_transaction() {
-        let mut db = Database::new();
-
-        assert!(db
-            .perform_action(AccountAction::Deposit(Deposit {
-                client_id: ClientId(1),
-                transaction_id: TransactionId(1),
-                amount: Amount(1),
-            }))
-            .is_ok());
-        assert!(db
-            .perform_action(AccountAction::Deposit(Deposit {
-                client_id: ClientId(1),
-                transaction_id: TransactionId(1),
-                amount: Amount(1),
-            }))
-            .is_err());
-        assert!(db
-            .perform_action(AccountAction::Withdrawal(Withdrawal {
-                client_id: ClientId(1),
-                transaction_id: TransactionId(1),
-                amount: Amount(1),
-            }))
-            .is_err());
-        assert!(db
-            .perform_action(AccountAction::Withdrawal(Withdrawal {
-                client_id: ClientId(1),
-                transaction_id: TransactionId(2),
-                amount: Amount(1),
-            }))
-            .is_ok());
-    }
-
-    ///ensure that a deposit can not be charged back multiple times
-    #[test]
-    fn duplicate_chargeback() {
-        let mut db = Database::new();
-        assert!(db
-            .perform_action(AccountAction::Deposit(Deposit {
-                client_id: ClientId(1),
-                transaction_id: TransactionId(1),
-                amount: Amount(1),
-            }))
-            .is_ok());
-        assert!(db
-            .perform_action(AccountAction::Dispute(Dispute {
-                disputed_transaction: TransactionId(1),
-            }))
-            .is_ok());
-        assert!(db
-            .perform_action(AccountAction::Chargeback(Chargeback {
-                disputed_transaction: TransactionId(1),
-            }))
-            .is_ok());
-        assert!(db
-            .perform_action(AccountAction::Chargeback(Chargeback {
-                disputed_transaction: TransactionId(1),
-            }))
-            .is_err());
-    }
-
-    /// ensure that a chargeback requires a dispute
-    #[test]
-    fn chargeback_no_dispute() {
-        let mut db = Database::new();
-        assert!(db
-            .perform_action(AccountAction::Deposit(Deposit {
-                client_id: ClientId(1),
-                transaction_id: TransactionId(1),
-                amount: Amount(1),
-            }))
-            .is_ok());
-        assert!(db
-            .perform_action(AccountAction::Chargeback(Chargeback {
-                disputed_transaction: TransactionId(1),
-            }))
-            .is_err());
-    }
-
-    /// ensure that we can't "resolve" a deposit if it hasn't been disputed
-    #[test]
-    fn resolve_no_dispute() {
-        let mut db = Database::new();
-        assert!(db
-            .perform_action(AccountAction::Deposit(Deposit {
-                client_id: ClientId(1),
-                transaction_id: TransactionId(1),
-                amount: Amount(1),
-            }))
-            .is_ok());
-        assert!(db
-            .perform_action(AccountAction::Resolve(Resolve {
-                disputed_transaction: TransactionId(1),
-            }))
-            .is_err());
     }
 }
